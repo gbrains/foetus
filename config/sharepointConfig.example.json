@@ -1,6 +1,0 @@
-{
-  "siteId": "contoso.sharepoint.com,12345-abcdef-12345-abcdef,12345678-abcd-1234-abcd-1234567890ab",
-  "listId": "abcd1234-abcd-1234-abcd-1234abcd1234",
-  "graphToken": "<Graph API token with Sites.Manage.All or List.ReadWrite.All>",
-  "teamsWebhook": "https://outlook.office.com/webhook/.../IncomingWebhook/..."
-}
