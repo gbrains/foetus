@@ -28,7 +28,7 @@ const NYT_ACTION_WORDS = /^(redeem|claim|activate|continue|next|start reading|ge
 const NYT_LOGIN_LINK = /^(log ?in|sign ?in|already have an account|already a subscriber)/i;
 // Never click anything that would start a paid subscription.
 const NEVER_CLICK = /subscribe|subscription|\$|per (week|month|year)|\/(wk|week|mo|month|yr)|trial|upgrade|all access|buy|purchase|payment|google|apple|facebook/i;
-const SUCCESS_TEXT = /you('| a)re all set|you now have (full )?access|access (has been )?(granted|activated|redeemed)|enjoy (your )?(access|reading)|successfully redeemed|your pass is active|thanks? (you )?for (redeeming|claiming)/i;
+const SUCCESS_TEXT = /you('| a)re all set|you now have (full )?access|access (has been )?(granted|activated|redeemed)|enjoy (your )?(access|reading)|successfully redeemed|your pass is active|thanks? (you )?for (redeeming|claiming)|already (have|has) (full )?access|already (been )?redeemed/i;
 const CAPTCHA_FRAME = /captcha|datadome|recaptcha|hcaptcha|arkoselabs|funcaptcha|challenges\.cloudflare/i;
 
 export function loadConfig(env = process.env, { inspectOnly = false } = {}) {
@@ -369,11 +369,14 @@ export async function inspect(cfg) {
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   dotenv.config({ path: path.join(HERE, '.env') });
   const inspectOnly = process.argv.includes('--inspect');
+  // --scheduled: used by the daily Windows task. Closes the browser once the pass is
+  // redeemed; on failure the window stays open so it can be finished by hand.
+  const scheduled = process.argv.includes('--scheduled');
   let cfg;
   try { cfg = loadConfig(process.env, { inspectOnly }); } catch (e) { console.error(e.message); process.exit(1); }
   if (inspectOnly) inspect(cfg).catch((e) => { console.error(e.message); process.exit(1); });
   else run(cfg)
-    .then(({ context }) => new Promise((resolve) => context.on('close', resolve)))
+    .then(({ context }) => (scheduled ? context.close() : new Promise((resolve) => context.on('close', resolve))))
     .catch((err) => {
       console.error(`\n✗ ${err.message}\nThe browser stays open so you can finish by hand.`);
       if (!err.context) process.exit(1);

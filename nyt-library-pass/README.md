@@ -38,10 +38,25 @@ A plain web link can't type into other websites, so the shortcut runs a small lo
 | OS | Launcher | Make it a desktop/Dock link |
 |---|---|---|
 | macOS | `NYT via Library.command` | Drag it to the Dock, or right-click > Make Alias and move the alias to the Desktop |
-| Windows | `nyt-via-library.bat` | Right-click > Send to > Desktop (create shortcut) |
+| Windows | `nyt-via-library.bat` | Right-click > Send to > Desktop (create shortcut). For a daily automatic run, see below. |
 | Linux | `nyt-via-library.sh` | Make a `.desktop` launcher pointing at it |
 
 Or from a terminal: `npm start`.
+
+## Automatic daily run (Windows)
+
+JCLC passes last 24 hours, so let Windows redeem it every day. You then just read
+in the NYT app or on nytimes.com, on your iPhone too, signed in to the same NYT account.
+
+1. Finish the one-time setup above (`.env` filled in).
+2. Double-click **`schedule-daily.bat`**, enter a time (24-hour clock, e.g. `06:30`), and say **Y** to a test run.
+
+Details:
+- The task is called **NYT via Library (daily)** in Task Scheduler.
+- It runs while you're signed in to Windows. If the PC was off or asleep at that time, it runs as soon as you're back.
+- A browser window opens briefly and closes itself once the pass is redeemed. If NYT shows a robot check, or something goes wrong, the window stays open so you can finish by hand.
+- Each run is logged to `logs\nyt-pass.log`.
+- To stop it, double-click **`unschedule-daily.bat`**.
 
 ## When something changes
 
