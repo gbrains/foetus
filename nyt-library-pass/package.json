@@ -7,6 +7,7 @@
   "main": "nyt-pass.js",
   "scripts": {
     "start": "node nyt-pass.js",
+    "inspect": "node nyt-pass.js --inspect",
     "setup": "npm install && npx playwright install chromium",
     "test": "node test/run-mock.js"
   },

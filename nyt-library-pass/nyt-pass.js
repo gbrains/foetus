@@ -31,7 +31,7 @@ const NEVER_CLICK = /subscribe|subscription|\$|per (week|month|year)|\/(wk|week|
 const SUCCESS_TEXT = /you('| a)re all set|you now have (full )?access|access (has been )?(granted|activated|redeemed)|enjoy (your )?(access|reading)|successfully redeemed|your pass is active|thanks? (you )?for (redeeming|claiming)/i;
 const CAPTCHA_FRAME = /captcha|datadome|recaptcha|hcaptcha|arkoselabs|funcaptcha|challenges\.cloudflare/i;
 
-export function loadConfig(env = process.env) {
+export function loadConfig(env = process.env, { inspectOnly = false } = {}) {
   const cfg = {
     libraryUrl: env.LIBRARY_PASS_URL?.trim(),
     card: env.LIBRARY_CARD_NUMBER?.trim(),
@@ -51,7 +51,7 @@ export function loadConfig(env = process.env) {
     ['LIBRARY_CARD_NUMBER', cfg.card],
     ['NYT_EMAIL', cfg.nytEmail],
     ['NYT_PASSWORD', cfg.nytPassword],
-  ].filter(([, v]) => !v).map(([k]) => k);
+  ].slice(0, inspectOnly ? 1 : undefined).filter(([, v]) => !v).map(([k]) => k);
   if (missing.length) {
     throw new Error(`Missing ${missing.join(', ')} — copy .env.example to .env and fill it in.`);
   }
@@ -337,11 +337,42 @@ export async function run(cfg, { onContext } = {}) {
   }
 }
 
+// --inspect: list the library page's fields/buttons/links (no credentials typed) so
+// selectors.json can be written for it. Output goes to library-page-report.txt.
+export async function inspect(cfg) {
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage();
+  await page.goto(cfg.libraryUrl, { waitUntil: 'domcontentloaded' });
+  await settle(page);
+  const report = await page.evaluate(() => {
+    const attrs = (el, names) => names.map((n) => el.getAttribute(n) && `${n}="${el.getAttribute(n)}"`).filter(Boolean).join(' ');
+    const labelOf = (el) => (el.id && document.querySelector(`label[for="${CSS.escape(el.id)}"]`)?.textContent.trim()) || el.closest('label')?.textContent.trim() || '';
+    return [
+      `URL: ${location.href}`, `Title: ${document.title}`, '',
+      '== Forms ==', ...[...document.forms].map((f) => `<form ${attrs(f, ['id', 'name', 'action', 'method'])}>`),
+      '', '== Inputs ==', ...[...document.querySelectorAll('input, select, textarea')].filter((e) => e.type !== 'hidden')
+        .map((e) => `<${e.tagName.toLowerCase()} ${attrs(e, ['type', 'id', 'name', 'placeholder', 'aria-label'])}> label="${labelOf(e)}"`),
+      '', '== Buttons ==', ...[...document.querySelectorAll('button, input[type=submit], input[type=button], [role=button]')]
+        .map((e) => `<${e.tagName.toLowerCase()} ${attrs(e, ['type', 'id', 'name', 'value'])}> "${e.textContent.trim().slice(0, 80)}"`),
+      '', '== Links mentioning NYT ==', ...[...document.links].filter((a) => /nyt|times/i.test(a.href + a.textContent))
+        .map((a) => `"${a.textContent.trim().slice(0, 80)}" -> ${a.href}`),
+      '', '== Iframes ==', ...[...document.querySelectorAll('iframe')].map((f) => f.src),
+      '', '== Visible text (first 1500 chars) ==', document.body.innerText.slice(0, 1500),
+    ].join('\n');
+  });
+  await browser.close();
+  const file = path.join(HERE, 'library-page-report.txt');
+  fs.writeFileSync(file, report);
+  console.log(report + `\n\nSaved to ${file}`);
+}
+
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   dotenv.config({ path: path.join(HERE, '.env') });
+  const inspectOnly = process.argv.includes('--inspect');
   let cfg;
-  try { cfg = loadConfig(); } catch (e) { console.error(e.message); process.exit(1); }
-  run(cfg)
+  try { cfg = loadConfig(process.env, { inspectOnly }); } catch (e) { console.error(e.message); process.exit(1); }
+  if (inspectOnly) inspect(cfg).catch((e) => { console.error(e.message); process.exit(1); });
+  else run(cfg)
     .then(({ context }) => new Promise((resolve) => context.on('close', resolve)))
     .catch((err) => {
       console.error(`\n✗ ${err.message}\nThe browser stays open so you can finish by hand.`);

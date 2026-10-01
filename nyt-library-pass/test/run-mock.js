@@ -14,10 +14,15 @@ function library(url) {
     return html('Library', `<h1>New York Times access</h1><a href="/nyt/form">Get your NYT pass</a>`);
   }
   if (url.pathname === '/nyt/form') {
-    return html('Library', `<form action="/nyt/issue"><label for="bc">Library card number</label><input id="bc" name="barcode"><button type="submit">Submit</button></form>`);
+    // Shaped like an ASP.NET WebForms page: one form around everything, header search box first.
+    return html('Library', `<form action="/nyt/issue" id="aspnetForm"><input type="text" name="ctl00$q" placeholder="Search the catalog"><input type="submit" value="Search" name="ctl00$go" formaction="/search">
+      <h2>The New York Times – Homewood</h2><label for="ctl00_Main_txtBarcode">Library Card Number</label><input id="ctl00_Main_txtBarcode" name="barcode">
+      <label for="ctl00_Main_txtPin">PIN</label><input id="ctl00_Main_txtPin" name="pin" type="password"><input type="submit" value="Submit" name="ctl00$Main$btnSubmit"></form>`);
   }
   if (url.pathname === '/nyt/issue') {
     state.cardSeen = url.searchParams.get('barcode');
+    assert.equal(url.searchParams.get('pin'), '1234');
+    assert.equal(url.searchParams.get('ctl00$q'), '', 'catalog search box left empty');
     if (state.cardSeen !== '21234000999999') return html('Library', '<div role="alert">Invalid card</div>');
     return { redirect: 'https://www.nytimes.com/subscription/redeem?campaignId=LIB&gift_code=ABCD-EFGH-IJKL' };
   }
@@ -56,7 +61,7 @@ function nyt(url) {
 const profileDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nyt-pass-'));
 const cfg = {
   libraryUrl: 'https://library.example/nyt',
-  card: '21234000999999', pin: '',
+  card: '21234000999999', pin: '1234',
   nytEmail: 'reader@example.com', nytPassword: 's3cret',
   headless: true, stepTimeout: 15000, profileDir, selectors: {},
 };

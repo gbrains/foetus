@@ -11,6 +11,15 @@ Double-click one shortcut and it will:
 
 It never clicks anything that mentions subscribing, trials, prices, or payment.
 
+## Homewood Public Library (JCLC)
+
+`.env.example` is already set to Homewood's pass page:
+`https://www.jclc.org/c/auth/ny/nyt_homewood.aspx`
+
+- JCLC codes last **24 hours**, so run the shortcut once a day when you want to read.
+- Your card must be current, with less than $5 in fines, or the library page will refuse it.
+- If the library page asks for a PIN, put it in `LIBRARY_PIN`.
+
 ## One-time setup
 
 1. Install [Node.js](https://nodejs.org/) 18 or newer.
@@ -38,8 +47,7 @@ Or from a terminal: `npm start`.
 
 - **CAPTCHA / "are you a robot"**: the script pauses and waits up to 5 minutes for you to solve it in the window.
 - **It gets stuck**: the browser stays open so you can finish by hand, and a screenshot is saved in `screenshots/`.
-- **Your library's page is unusual**: copy `selectors.example.json` to `selectors.json` and point the keys at the right fields/buttons.
-- Library passes usually last 24–72 hours. Run it again when the pass expires.
+- **The library step fails**: run `npm run inspect`. It opens the library page without typing anything and writes its fields, buttons and links to `library-page-report.txt` (no passwords in it). Share that report to get exact selectors, or copy `selectors.example.json` to `selectors.json` and point the keys at the right fields/buttons.
 
 The browser profile is kept in `.browser-profile/`, so NYT may remember your login between runs.
 
