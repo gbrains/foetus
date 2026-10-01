@@ -1,0 +1,8 @@
+{
+  "_comment": "Optional. Copy to selectors.json only if the automatic detection misses something on your library's page. Any key may be omitted. Values are Playwright selectors.",
+  "libraryStartButton": "text=Get your NYT pass",
+  "libraryCardInput": "#barcode",
+  "libraryPinInput": "#pin",
+  "librarySubmit": "button[type=submit]",
+  "nytRedeemButton": "button:has-text('Redeem')"
+}
