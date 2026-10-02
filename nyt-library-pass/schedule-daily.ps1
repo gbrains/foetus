@@ -33,7 +33,7 @@ $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatt
 $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited
 
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings -Principal $principal `
-  -Description 'Redeems the Homewood/JCLC library NYT pass and logs in to NYTimes.com.' -Force | Out-Null
+  -Description 'Gets the Homewood/JCLC library NYT pass and opens the NYT redeem page in your browser.' -Force | Out-Null
 
 Write-Host "Scheduled '$TaskName' every day at $($at.ToString('h:mm tt'))."
 Write-Host "Log: $(Join-Path $here 'logs\nyt-pass.log')"

@@ -8,6 +8,11 @@
 //   5. Log in with the NYTimes.com account and redeem the pass.
 //   6. Finish on https://www.nytimes.com/ and leave the browser open.
 //
+// By default ("hand-off" mode) the script only automates the library half. NYT blocks
+// automated browsers, so the NYT redeem link the library issues is opened in your
+// normal browser instead, where you're already signed in and just click Redeem.
+// NYT_FULL_AUTO=true runs steps 3-6 in the automated browser too (NYT may block it).
+//
 // Library and NYT pages vary, so each step finds fields and buttons by their
 // labels rather than fixed IDs. selectors.json can pin exact selectors when a
 // page is unusual (see selectors.example.json).
@@ -15,6 +20,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { spawn } from 'node:child_process';
 import dotenv from 'dotenv';
 import { chromium } from 'playwright';
 
@@ -42,6 +48,7 @@ export function loadConfig(env = process.env, { inspectOnly = false } = {}) {
     stepTimeout: Number(env.STEP_TIMEOUT_MS) || 45000,
     profileDir: path.resolve(HERE, env.PROFILE_DIR || '.browser-profile'),
     selectors: {},
+    handoff: !/^(1|true|yes)$/i.test(env.NYT_FULL_AUTO ?? ''),
   };
   const selFile = path.resolve(HERE, env.SELECTORS_FILE || 'selectors.json');
   if (fs.existsSync(selFile)) cfg.selectors = JSON.parse(fs.readFileSync(selFile, 'utf8'));
@@ -51,7 +58,7 @@ export function loadConfig(env = process.env, { inspectOnly = false } = {}) {
     ['LIBRARY_CARD_NUMBER', cfg.card],
     ['NYT_EMAIL', cfg.nytEmail],
     ['NYT_PASSWORD', cfg.nytPassword],
-  ].slice(0, inspectOnly ? 1 : undefined).filter(([, v]) => !v).map(([k]) => k);
+  ].slice(0, inspectOnly ? 1 : cfg.handoff ? 2 : undefined).filter(([, v]) => !v).map(([k]) => k);
   if (missing.length) {
     throw new Error(`Missing ${missing.join(', ')} — copy .env.example to .env and fill it in.`);
   }
@@ -154,7 +161,7 @@ async function settle(page) {
 
 // ---------- step 1 + 2: library ----------
 
-async function libraryStep(context, page, cfg) {
+async function libraryStep(context, page, cfg, onSubmit = () => {}) {
   log('1/6 library', `opening ${cfg.libraryUrl}`);
   await page.goto(cfg.libraryUrl, { waitUntil: 'domcontentloaded' });
   await settle(page);
@@ -189,6 +196,7 @@ async function libraryStep(context, page, cfg) {
   if (pin && cfg.pin) await pin.fill(cfg.pin);
   else if (pin && !cfg.pin) log('2/6 card', 'page has a PIN/password field but LIBRARY_PIN is empty');
 
+  onSubmit();
   const popup = context.waitForEvent('page', { timeout: 8000 }).catch(() => null);
   if (S.librarySubmit) await page.locator(S.librarySubmit).first().click();
   else if (!(await clickByName(page, SUBMIT_WORDS, { roles: ['button'] }))) await card.press('Enter');
@@ -200,10 +208,11 @@ async function libraryStep(context, page, cfg) {
 
 // ---------- step 3: hand-off to nytimes.com ----------
 
-async function reachNyt(context, page, cfg) {
+async function reachNyt(context, page, cfg, handoffUrl = () => null) {
   const deadline = Date.now() + cfg.stepTimeout;
   let code = null;
   while (Date.now() < deadline) {
+    if (handoffUrl()) return { url: handoffUrl(), code };
     const nytPage = context.pages().find((p) => isNyt(p.url()));
     if (nytPage) return { page: nytPage, code };
 
@@ -227,6 +236,7 @@ async function reachNyt(context, page, cfg) {
     if (err.trim()) throw new Error(`Library page reported: ${err.trim().slice(0, 200)}`);
     await sleep(1000);
   }
+  if (code) throw new Error(`The library issued code ${code} but no NYTimes.com link was found. Redeem it by hand on nytimes.com.`);
   throw new Error('Never reached NYTimes.com after submitting the library card. Check the card number, or set selectors.json.');
 }
 
@@ -303,7 +313,14 @@ async function nytStep(page, cfg, code) {
 
 // ---------- main ----------
 
-export async function run(cfg, { onContext } = {}) {
+export function openInDefaultBrowser(url) {
+  // rundll32 avoids cmd.exe mangling the "&" in redeem URLs.
+  const [cmd, args] = process.platform === 'win32' ? ['rundll32', ['url.dll,FileProtocolHandler', url]]
+    : process.platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]];
+  spawn(cmd, args, { detached: true, stdio: 'ignore' }).unref();
+}
+
+export async function run(cfg, { onContext, openUrl = openInDefaultBrowser } = {}) {
   fs.mkdirSync(cfg.profileDir, { recursive: true });
   const context = await chromium.launchPersistentContext(cfg.profileDir, {
     headless: cfg.headless,
@@ -311,11 +328,43 @@ export async function run(cfg, { onContext } = {}) {
     args: ['--start-maximized'],
   });
   context.setDefaultTimeout(cfg.stepTimeout);
+
+  // Hand-off mode: never load nytimes.com in the automated browser. Once the card is
+  // submitted, the first navigation to NYT is captured and opened in the normal browser.
+  let armed = false;
+  let handoffUrl = null;
+  if (cfg.handoff) {
+    const blank = { status: 200, contentType: 'text/html', body: '<p>Opening NYTimes.com in your browser…</p>' };
+    await context.route('**/*', async (route) => {
+      const req = route.request();
+      if (isNyt(req.url())) {
+        if (armed && req.isNavigationRequest()) handoffUrl ??= req.url();
+        return route.abort();
+      }
+      if (!armed || !req.isNavigationRequest()) return route.fallback();
+      // Redirect hops aren't routed, so fetch library navigations without following
+      // redirects and replay any redirect as a fresh (routed) navigation.
+      const res = await route.fetch({ maxRedirects: 0 });
+      const location = res.status() >= 300 && res.status() < 400 && res.headers().location;
+      if (!location) return route.fulfill({ response: res });
+      const target = new URL(location, req.url()).href;
+      if (isNyt(target)) { handoffUrl ??= target; return route.fulfill(blank); }
+      return route.fulfill({ ...blank, body: `<script>location.replace(${JSON.stringify(target)})</script>` });
+    });
+  }
   if (onContext) await onContext(context);
   const page = context.pages()[0] ?? (await context.newPage());
 
   try {
-    let current = await libraryStep(context, page, cfg);
+    let current = await libraryStep(context, page, cfg, () => { armed = true; });
+    if (cfg.handoff) {
+      const { url, code } = await reachNyt(context, current, cfg, () => handoffUrl);
+      await context.close();
+      log('3/6 handoff', 'opening the NYT redeem page in your normal browser');
+      openUrl(url);
+      log('done', `In that window: sign in if asked, leave newsletter boxes unchecked, and click Redeem.${code ? ` (Library code: ${code})` : ''}`);
+      return { context: null, handoffUrl: url };
+    }
     const { page: nytPage, code } = await reachNyt(context, current, cfg);
     current = nytPage;
     await current.bringToFront();
@@ -376,7 +425,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   try { cfg = loadConfig(process.env, { inspectOnly }); } catch (e) { console.error(e.message); process.exit(1); }
   if (inspectOnly) inspect(cfg).catch((e) => { console.error(e.message); process.exit(1); });
   else run(cfg)
-    .then(({ context }) => (scheduled ? context.close() : new Promise((resolve) => context.on('close', resolve))))
+    .then(({ context }) => (!context ? null : scheduled ? context.close() : new Promise((resolve) => context.on('close', resolve))))
     .catch((err) => {
       console.error(`\n✗ ${err.message}\nThe browser stays open so you can finish by hand.`);
       if (!err.context) process.exit(1);
